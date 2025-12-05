@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-multipart
+tensorflow
+librosa
+numpy
+SpeechRecognition
+scipy
+Pillow
+SQLAlchemy
+transformers
+torch
+opencv-python
+av
+soundfile

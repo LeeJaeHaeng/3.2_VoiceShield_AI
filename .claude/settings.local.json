@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(timeout 30 python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
