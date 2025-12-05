@@ -17,9 +17,16 @@ from database import init_db, get_db, Voice, AnalysisLog
 import datetime
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 import torch
-import torch
+import torchaudio
+
+# Patch for speechbrain compatibility with newer torchaudio
+if not hasattr(torchaudio, 'list_audio_backends'):
+    torchaudio.list_audio_backends = lambda: ['soundfile']
+
 import torch.nn.functional as F
 import cv2
+from speechbrain.inference.classifiers import EncoderClassifier
+from sklearn.cluster import AgglomerativeClustering
 
 MODEL_PATH = "best_model.h5"
 model = None
@@ -107,6 +114,19 @@ def load_summarization_model():
     except Exception as e:
         print(f"⚠️ Failed to load Summarization model: {e}")
 
+# Speaker Recognition Model (for Diarization)
+SPEAKER_MODEL_NAME = "speechbrain/spkrec-ecapa-voxceleb"
+speaker_recognition_model = None
+
+def load_speaker_recognition_model():
+    global speaker_recognition_model
+    try:
+        print(f"⏳ Loading Speaker Recognition Model: {SPEAKER_MODEL_NAME}...")
+        speaker_recognition_model = EncoderClassifier.from_hparams(source=SPEAKER_MODEL_NAME, savedir="tmp_model")
+        print(f"✅ Speaker Recognition Model loaded: {SPEAKER_MODEL_NAME}")
+    except Exception as e:
+        print(f"⚠️ Failed to load Speaker Recognition model: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_model()
@@ -116,6 +136,7 @@ async def lifespan(app: FastAPI):
     load_ai_model()
     load_age_gender_model()
     load_summarization_model()
+    load_speaker_recognition_model()
     init_db()
     init_db()
     print("✅ Database initialized.")
@@ -499,16 +520,165 @@ def extract_voice_fingerprint(file_path):
         print(f"Fingerprint error: {e}")
         return None
 
-def predict_age_gender(file_path):
-    """Predict age and gender from audio file"""
+def diarize_audio(file_path, num_speakers=None):
+    """
+    Perform speaker diarization:
+    1. VAD (Voice Activity Detection) to find speech segments
+    2. Extract embeddings for each segment
+    3. Cluster embeddings to identify speakers
+    """
+    if speaker_recognition_model is None:
+        print("Speaker recognition model not loaded.")
+        return None
+
+    try:
+        # 1. Load Audio (16kHz mono)
+        wav_path = convert_to_wav(file_path)
+        if not wav_path:
+            return None
+        
+        # Load using torchaudio for VAD compatibility
+        import torchaudio
+        wav, sr = torchaudio.load(wav_path)
+        
+        # Resample if needed (Silero VAD expects 16k or 8k)
+        if sr != 16000:
+            resampler = torchaudio.transforms.Resample(sr, 16000)
+            wav = resampler(wav)
+            sr = 16000
+
+        # 2. VAD - Get speech timestamps
+        model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad', force_reload=False, trust_repo=True)
+        (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+        
+        # Get speech timestamps
+        speech_timestamps = get_speech_timestamps(wav, model, sampling_rate=sr)
+        
+        if not speech_timestamps:
+            print("No speech detected.")
+            return []
+
+        # 3. Extract Embeddings for each segment
+        embeddings = []
+        segments = []
+        
+        for ts in speech_timestamps:
+            start = ts['start']
+            end = ts['end']
+            
+            # Extract segment (ensure min length for embedding)
+            segment = wav[:, start:end]
+            
+            # Skip very short segments (< 0.5s)
+            if segment.shape[1] < 8000: 
+                continue
+                
+            # Extract embedding
+            # EncoderClassifier expects (batch, time)
+            embedding = speaker_recognition_model.encode_batch(segment)
+            # Embedding shape: (batch, 1, emb_dim) -> flatten to (emb_dim,)
+            embedding = embedding.squeeze().cpu().numpy()
+            
+            embeddings.append(embedding)
+            segments.append({
+                'start': start / sr,
+                'end': end / sr,
+                'audio': segment # Keep audio for gender analysis
+            })
+
+        if not embeddings:
+            return []
+
+        # 4. Clustering
+        X = np.array(embeddings)
+        
+        # Determine number of clusters
+        if num_speakers is None:
+            # Simple heuristic: if < 5 segments, assume 1 speaker. Else try to find 2.
+            # In real app, might use spectral clustering or user input.
+            # For now, let's assume 2 speakers for phone calls if enough data, else 1.
+            n_clusters = 2 if len(X) >= 4 else 1
+        else:
+            n_clusters = num_speakers
+            
+        if len(X) < n_clusters:
+             n_clusters = len(X)
+
+        clustering = AgglomerativeClustering(n_clusters=n_clusters).fit(X)
+        labels = clustering.labels_
+        
+        # Group segments by speaker
+        speakers = {}
+        for i, label in enumerate(labels):
+            speaker_id = f"Speaker {label + 1}"
+            if speaker_id not in speakers:
+                speakers[speaker_id] = {
+                    'id': speaker_id,
+                    'segments': [],
+                    'total_duration': 0,
+                    'audio_tensors': []
+                }
+            
+            seg = segments[i]
+            speakers[speaker_id]['segments'].append({
+                'start': seg['start'],
+                'end': seg['end']
+            })
+            speakers[speaker_id]['total_duration'] += (seg['end'] - seg['start'])
+            speakers[speaker_id]['audio_tensors'].append(seg['audio'])
+
+        # 5. Analyze each speaker (Age/Gender)
+        diarization_result = []
+        for spk_id, data in speakers.items():
+            # Concatenate all audio segments for this speaker
+            if data['audio_tensors']:
+                combined_audio = torch.cat(data['audio_tensors'], dim=1)
+                # Convert to numpy for predict_age_gender compatibility
+                combined_audio_np = combined_audio.squeeze().numpy()
+                
+                # Analyze demographics
+                demographics = predict_age_gender(None, audio_data=combined_audio_np)
+                
+                diarization_result.append({
+                    'id': spk_id,
+                    'duration': data['total_duration'],
+                    'demographics': demographics,
+                    'segments': data['segments'] # Optional: return all segments
+                })
+        
+        # Clean up
+        if os.path.exists(wav_path) and wav_path != file_path: # Don't delete original if same
+             try: os.remove(wav_path)
+             except: pass
+             
+        return diarization_result
+
+    except Exception as e:
+        print(f"Diarization error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def predict_age_gender(file_path, audio_data=None):
+    """Predict age and gender from audio file or raw audio data"""
     if age_gender_model is None or age_gender_processor is None:
         return None
 
     try:
-        # Load audio (resample to 16k) using PyAV
-        audio, sr = load_audio_with_av(file_path, sr=16000, duration=10) # Limit to 10s for efficiency
+        audio = None
+        sr = 16000
+
+        if audio_data is not None:
+            # Use provided audio data (numpy array)
+            audio = audio_data
+        elif file_path:
+            # Load audio (resample to 16k) using PyAV
+            audio, sr = load_audio_with_av(file_path, sr=16000, duration=10) # Limit to 10s for efficiency
+            if audio is None:
+                 audio, sr = librosa.load(file_path, sr=16000, duration=10)
+        
         if audio is None:
-             audio, sr = librosa.load(file_path, sr=16000, duration=10)
+            return None
         
         # Process audio
         inputs = age_gender_processor(audio, sampling_rate=16000, return_tensors="pt", padding=True)
@@ -788,8 +958,17 @@ async def analyze_audio(file: UploadFile = File(...), db: Session = Depends(get_
         # Context Analysis
         context_result = analyze_context(tmp_path)
         
-        # Age/Gender Analysis
-        speaker_demographics = predict_age_gender(tmp_path)
+        # Speaker Diarization & Age/Gender Analysis
+        diarization_result = diarize_audio(tmp_path)
+        speaker_demographics = None
+        
+        if diarization_result and len(diarization_result) > 0:
+            # Use the primary speaker (longest duration) for the main display
+            primary_speaker = max(diarization_result, key=lambda x: x['duration'])
+            speaker_demographics = primary_speaker['demographics']
+        else:
+            # Fallback to single-speaker analysis
+            speaker_demographics = predict_age_gender(tmp_path)
 
         # Voice ID (Identify speaker)
         fingerprint = extract_voice_fingerprint(tmp_path)
@@ -818,7 +997,8 @@ async def analyze_audio(file: UploadFile = File(...), db: Session = Depends(get_
             "speaker": {
                 "id": speaker_id,
                 "similarity": max_similarity,
-                "demographics": speaker_demographics
+                "demographics": speaker_demographics,
+                "diarization": diarization_result
             }
         }
 

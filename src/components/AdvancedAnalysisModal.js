@@ -133,36 +133,68 @@ export default function AdvancedAnalysisModal({ visible, onClose, analysisResult
                     </View>
                     </View>
 
+                    {/* 화자 분리 (Diarization) */}
+                    {analysisResult.speaker?.diarization && analysisResult.speaker.diarization.length > 0 && (
+                        <View style={styles.section}>
+                            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+                                🗣️ 화자 분리 분석
+                            </Text>
+                            {analysisResult.speaker.diarization.map((speaker, index) => (
+                                <View key={index} style={[styles.speakerCard, { backgroundColor: colors.input, borderColor: colors.border, marginBottom: 8 }]}>
+                                    <View style={styles.speakerRow}>
+                                        <Text style={[styles.speakerLabel, { color: colors.primary, fontWeight: 'bold' }]}>
+                                            {speaker.id}
+                                        </Text>
+                                        <Text style={[styles.speakerValue, { color: colors.mutedForeground }]}>
+                                            {speaker.duration.toFixed(1)}초 발화
+                                        </Text>
+                                    </View>
+                                    <View style={styles.speakerRow}>
+                                        <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>성별/연령:</Text>
+                                        <Text style={[styles.speakerValue, { color: colors.foreground }]}>
+                                            {speaker.demographics?.gender === 'Female' ? '여성' : 
+                                             speaker.demographics?.gender === 'Male' ? '남성' : '미상'} 
+                                            {' '}({speaker.demographics?.age_group || 'Unknown'})
+                                        </Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
                     {/* 화자 특성 */}
                     <View style={styles.section}>
                     <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                         👤 화자 특성 분석
                     </Text>
                     <View style={[styles.speakerCard, { backgroundColor: colors.input, borderColor: colors.border }]}>
-                        <View style={styles.speakerRow}>
-                        <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>성별:</Text>
-                        <Text style={[styles.speakerValue, { color: colors.foreground }]}>
-                            {analysisResult.advancedAnalysis.speakerMatch.characteristics.gender}
-                        </Text>
-                        </View>
-                        <View style={styles.speakerRow}>
-                        <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>연령대:</Text>
-                        <Text style={[styles.speakerValue, { color: colors.foreground }]}>
-                            {analysisResult.advancedAnalysis.speakerMatch.characteristics.ageRange}
-                        </Text>
-                        </View>
-                        <View style={styles.speakerRow}>
-                        <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>억양:</Text>
-                        <Text style={[styles.speakerValue, { color: colors.foreground }]}>
-                            {analysisResult.advancedAnalysis.speakerMatch.characteristics.accent}권
-                        </Text>
-                        </View>
-                        <View style={styles.speakerRow}>
-                        <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>매칭 신뢰도:</Text>
-                        <Text style={[styles.speakerValue, { color: '#06B6D4' }]}>
-                            {analysisResult.advancedAnalysis.speakerMatch.confidence.toFixed(1)}%
-                        </Text>
-                        </View>
+                        {analysisResult.speaker?.demographics ? (
+                            <>
+                                <View style={styles.speakerRow}>
+                                <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>성별:</Text>
+                                <Text style={[styles.speakerValue, { color: colors.foreground }]}>
+                                    {analysisResult.speaker.demographics.gender === 'Female' ? '여성' : 
+                                     analysisResult.speaker.demographics.gender === 'Male' ? '남성' : '미상'}
+                                </Text>
+                                </View>
+                                <View style={styles.speakerRow}>
+                                <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>연령대:</Text>
+                                <Text style={[styles.speakerValue, { color: colors.foreground }]}>
+                                    {analysisResult.speaker.demographics.age_group}
+                                </Text>
+                                </View>
+                                <View style={styles.speakerRow}>
+                                <Text style={[styles.speakerLabel, { color: colors.mutedForeground }]}>분석 모델:</Text>
+                                <Text style={[styles.speakerValue, { color: colors.foreground }]}>
+                                    Wav2Vec2 (Age/Gender)
+                                </Text>
+                                </View>
+                            </>
+                        ) : (
+                            <Text style={{ color: colors.mutedForeground, textAlign: 'center' }}>
+                                화자 특성 정보가 없습니다.
+                            </Text>
+                        )}
                     </View>
                     </View>
 

@@ -50,7 +50,10 @@ export const useHistory = (showToast, setAnalysisResult) => {
     
     // Filter by Type
     if (historyType !== 'all') {
-      filtered = filtered.filter((item) => item.type === historyType);
+      filtered = filtered.filter((item) => {
+        const itemType = item.type || 'audio'; // Default to 'audio' for legacy items
+        return itemType === historyType;
+      });
     }
 
     // Filter by Status

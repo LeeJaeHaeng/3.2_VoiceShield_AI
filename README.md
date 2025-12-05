@@ -1,137 +1,95 @@
 # 🛡️ VoiceShield AI - Enhanced
 
-음성변조 보이스피싱 탐지 앱
+음성변조 보이스피싱 탐지 및 예방 솔루션
 
 ## ✨ 주요 기능
 
-### 1. 기존 기능
-- 🎙️ **음성 녹음** - 실시간 음성 녹음 및 분석
-- 📁 **파일 업로드** - 오디오 파일 선택 및 분석
-- 🤖 **AI 분석** - CNN-LSTM 하이브리드 모델 기반 딥페이크 탐지
-- 📊 **분석 결과** - 위험도, 신뢰도, 상세 분석 데이터 제공
-- 📜 **분석 기록** - 과거 분석 내역 저장 및 관리
+### 1. 핵심 기능
 
-### 2. 신규 기능 (Enhanced)
-- 📞 **실시간 통화 모니터링 시뮬레이션**
-  - 통화 화면 UI 프로토타입
-  - 실시간 음성 분석 애니메이션
-  - 위험도 게이지 및 경고 시스템
-  - 음성 파형 시각화
+- 🎙️ **음성 녹음 & 분석** - 실시간 녹음 및 파일 업로드 분석
+- 🤖 **AI 딥페이크 탐지** - CNN-LSTM 하이브리드 모델 기반 정밀 분석
+- 📊 **상세 분석 리포트** - 위험도, 신뢰도, MFCC, 스펙트로그램 시각화
+- 🗣️ **화자 분리 (Speaker Diarization)** - 다중 화자 식별 및 성별/연령대 분석
+- 🖼️ **이미지 정밀 분석** - AI 생성 이미지 탐지 및 ELA(Error Level Analysis)
 
-- 🔴 **라이브 모니터링 대시보드**
-  - 모니터링 활성화 토글
-  - 자동 차단 및 알림 설정
-  - 통계 대시보드
-  - 수신/발신 통화 시뮬레이션
+### 2. 실시간 보호 (Enhanced)
 
-## 📁 프로젝트 구조 (모듈화)
+- 📞 **통화 모니터링 시뮬레이션** - 실시간 위험도 게이지 및 경고 시스템
+- 🔴 **라이브 모니터링 대시보드** - 자동 차단 및 알림 설정 관리
+- 🚨 **긴급 경보** - 고위험 상황 감지 시 즉각적인 사용자 경고
+
+## 📁 프로젝트 구조
 
 ```
-src/
-├── components/          # 재사용 가능한 컴포넌트
-│   ├── call/           # 통화 관련 컴포넌트
-│   │   ├── CallHeader.js
-│   │   ├── CallAvatar.js
-│   │   ├── RiskGauge.js
-│   │   ├── VoiceWaveform.js
-│   │   ├── AnalyzingBadge.js
-│   │   ├── CallActions.js
-│   │   └── RiskAlert.js
-│   ├── monitor/        # 모니터링 관련 컴포넌트
-│   │   ├── MonitorToggle.js
-│   │   ├── MonitorSettings.js
-│   │   ├── MonitorStats.js
-│   │   └── SimulationButtons.js
-│   └── ... (기존 컴포넌트)
-├── screens/            # 화면 컴포넌트
-│   ├── HomeScreen.js
-│   ├── CallScreen.js          # 신규
-│   ├── LiveMonitorScreen.js   # 신규
-│   └── ... (기존 화면)
-├── hooks/              # 커스텀 훅
-│   ├── useCallSimulation.js   # 통화 시뮬레이션 로직
-│   └── useVoiceAnalysis.js    # 음성 분석 로직
-├── utils/              # 유틸리티 함수
-│   ├── callHelpers.js         # 신규
-│   └── ... (기존 utils)
-└── context/
-    └── AppContext.js
+voiceshield_ai_v2/
+├── backend/            # Python FastAPI 백엔드
+│   ├── server.py      # 메인 서버 로직 (AI 모델 추론)
+│   ├── models/        # AI 모델 파일
+│   └── ...
+├── src/               # React Native (Expo) 프론트엔드
+│   ├── components/    # 재사용 가능한 UI 컴포넌트
+│   ├── screens/       # 주요 화면 (홈, 분석, 설정 등)
+│   ├── hooks/         # 커스텀 훅 (비즈니스 로직)
+│   ├── context/       # 전역 상태 관리
+│   └── ...
+└── ...
 ```
 
-## 🎯 설계 원칙
+## 🚀 설치 및 실행 방법
 
-### 모듈화 (Modularization)
-- **단일 책임 원칙**: 각 컴포넌트는 하나의 명확한 역할
-- **재사용성**: 독립적으로 사용 가능한 컴포넌트
-- **유지보수성**: 기능별 분리로 코드 관리 용이
+### 1. 백엔드 (Backend) 설정
 
-### 커스텀 훅 (Custom Hooks)
-- **로직 분리**: UI와 비즈니스 로직 분리
-- **상태 관리**: 통화 시뮬레이션, 음성 분석 상태 관리
-- **재사용성**: 여러 컴포넌트에서 동일한 로직 활용
+Python 3.8+ 환경이 필요합니다.
 
-### 유틸리티 함수 (Utility Functions)
-- **순수 함수**: 예측 가능하고 테스트 용이
-- **포맷팅**: 시간, 전화번호 등 일관된 포맷
-- **헬퍼**: 반복되는 로직 재사용
+1. **의존성 설치:**
 
-## 🚀 실행 방법
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
 
-### Expo Snack에서 실행
-1. [Expo Snack](https://snack.expo.dev) 접속
-2. 프로젝트 파일 업로드 또는 코드 복사
-3. 모바일 기기에서 Expo Go 앱으로 QR 스캔
+   _참고: `ffmpeg`가 시스템에 설치되어 있어야 할 수 있습니다._
 
-### 로컬 환경에서 실행
-```bash
-npm install
-npm start
-```
+2. **모델 파일 준비:**
 
-## 📱 주요 화면
+   - `best_model.h5` 파일을 `backend` 디렉토리에 위치시킵니다.
 
-### 1. 홈 화면 (HomeScreen)
-- 음성 녹음 섹션
-- 파일 업로드 섹션
-- 실시간 모니터링 배너 (신규)
+3. **서버 실행:**
+   ```bash
+   python server.py
+   ```
+   또는
+   ```bash
+   uvicorn server:app --reload --host 0.0.0.0 --port 8000
+   ```
 
-### 2. 통화 화면 (CallScreen) - 신규
-- 통화 상태 표시 (수신/발신/통화중)
-- 실시간 위험도 게이지
-- 음성 파형 시각화
-- 위험 경고 오버레이
+### 2. 프론트엔드 (Frontend) 실행
 
-### 3. 라이브 모니터링 (LiveMonitorScreen) - 신규
-- 모니터링 활성화 토글
-- 설정 옵션 (자동 차단, 알림)
-- 통계 대시보드
-- 시뮬레이션 테스트 버튼
+Node.js 및 Expo 환경이 필요합니다.
 
-## ⚠️ 기술적 제약사항
+1. **의존성 설치:**
 
-### Expo Snack 환경
-- 실제 통화 연동 불가 (CallKit/Telecom API 미지원)
-- 백그라운드 실행 제한
-- 네이티브 모듈 제한
+   ```bash
+   npm install
+   ```
 
-### 구현 방식
-- **시뮬레이션 기반**: 실제 통화 대신 UI/UX 프로토타입
-- **애니메이션 중심**: 실시간 분석 시각화
-- **데모 목적**: 프레젠테이션 및 개념 검증용
+2. **앱 실행:**
+   ```bash
+   npx expo start
+   ```
+   - Expo Go 앱을 통해 QR 코드를 스캔하여 실행하거나, 에뮬레이터를 사용합니다.
 
-## 🔄 향후 개선 방향
+## 📱 주요 화면 구성
 
-### 실제 통화 연동 (네이티브 앱 필요)
-- react-native-call-detection
-- react-native-incall-manager
-- react-native-permissions
+1. **홈 화면 (HomeScreen)**: 녹음, 파일 업로드, 최근 분석 기록 확인
+2. **분석 결과 (ResultScreen)**: 딥페이크 여부, 신뢰도, 상세 지표 확인
+3. **고급 분석 (AdvancedAnalysisModal)**: 화자 분리 정보, 음성 지문, 감정 분석 등 심층 데이터 제공
+4. **라이브 모니터링 (LiveMonitorScreen)**: 실시간 보호 설정 및 시뮬레이션
 
-### 커스텀 Expo 빌드
-```bash
-# Expo EAS Build 사용
-expo install expo-dev-client
-eas build --profile development
-```
+## ⚠️ 기술적 사항
+
+- **백엔드 통신**: 프론트엔드는 기본적으로 `http://10.0.2.2:8000` (Android Emulator 기준)으로 연결됩니다. 실기기 사용 시 `src/config.js`의 `SERVER_URL`을 PC의 IP 주소로 변경해야 합니다.
+- **AI 모델**: TensorFlow/Keras 기반의 딥페이크 탐지 모델과 PyTorch/SpeechBrain 기반의 화자 분석 모델을 사용합니다.
 
 ## 📝 라이선스
 

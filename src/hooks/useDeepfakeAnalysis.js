@@ -59,6 +59,7 @@ export const useDeepfakeAnalysis = (showToast, startWaveAnimation, fadeAnim, his
       waveform: waveform, 
       spectrum: spectrum,
       advancedAnalysis: advancedAnalysis,
+      type: 'audio',
     };
   };
 
@@ -106,6 +107,7 @@ export const useDeepfakeAnalysis = (showToast, startWaveAnimation, fadeAnim, his
           advancedAnalysis: generateAdvancedAnalysis(Date.now()),
           context: data.context,
           speaker: data.speaker,
+          type: 'audio',
         };
         usedServer = true;
       } else {
