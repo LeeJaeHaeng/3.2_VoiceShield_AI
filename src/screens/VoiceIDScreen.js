@@ -31,6 +31,39 @@ export default function VoiceIDScreen() {
     }
   };
 
+  const handleDeleteVoice = (voiceName) => {
+    Alert.alert(
+      '목소리 삭제',
+      `'${voiceName}'을(를) 정말 삭제하시겠습니까?`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+             try {
+               // Use Query Parameter for DELETE request to avoid body parsing issues
+               const encodedName = encodeURIComponent(voiceName);
+               const response = await fetch(`${SERVER_URL}/delete_voice?name=${encodedName}`, {
+                 method: 'DELETE',
+               });
+               
+               if (response.ok) {
+                 showToast(`'${voiceName}' 삭제 완료`, 'success');
+                 fetchVoices();
+               } else {
+                 throw new Error('Failed to delete');
+               }
+             } catch (error) {
+               console.error('Delete error:', error);
+               showToast('삭제에 실패했습니다.', 'error');
+             }
+          }
+        }
+      ]
+    );
+  };
+
   const handleStopAndRegister = async () => {
     const file = await stopRecording();
     if (file) {
@@ -86,13 +119,21 @@ export default function VoiceIDScreen() {
 
   const renderItem = ({ item }) => (
     <View style={[styles.voiceItem, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={styles.voiceIcon}>
-        <Ionicons name="person-circle-outline" size={32} color={colors.primary} />
+      <View style={styles.voiceInfo}>
+        <View style={styles.voiceIcon}>
+          <Ionicons name="person-circle-outline" size={32} color={colors.primary} />
+        </View>
+        <Text style={[styles.voiceName, { color: colors.foreground }]}>{item}</Text>
+        <View style={[styles.verifiedBadge, { backgroundColor: colors.green + '20' }]}>
+          <Text style={[styles.verifiedText, { color: colors.green }]}>등록됨</Text>
+        </View>
       </View>
-      <Text style={[styles.voiceName, { color: colors.foreground }]}>{item}</Text>
-      <View style={[styles.verifiedBadge, { backgroundColor: colors.green + '20' }]}>
-        <Text style={[styles.verifiedText, { color: colors.green }]}>등록됨</Text>
-      </View>
+      <TouchableOpacity 
+        onPress={() => handleDeleteVoice(item)}
+        style={styles.deleteButton}
+      >
+        <Ionicons name="trash-outline" size={20} color={colors.destructive} />
+      </TouchableOpacity>
     </View>
   );
 
@@ -343,15 +384,22 @@ const styles = StyleSheet.create({
   voiceItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
+  },
+  voiceInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 16,
   },
   voiceName: {
-    flex: 1,
     fontSize: 16,
     fontWeight: '600',
+  },
+  deleteButton: {
+    padding: 8,
   },
   verifiedBadge: {
     paddingHorizontal: 8,

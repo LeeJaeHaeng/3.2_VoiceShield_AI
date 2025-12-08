@@ -63,30 +63,7 @@ export default function HomeScreen() {
         colors={colors}
       />
 
-      {/* Quick Actions Grid */}
-      <View style={styles.gridContainer}>
-        <TouchableOpacity 
-          style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={() => navigation.navigate('ImageDetectionScreen')}
-        >
-          <View style={[styles.iconCircle, { backgroundColor: colors.primary + '15' }]}>
-            <Ionicons name="image" size={28} color={colors.primary} />
-          </View>
-          <Text style={[styles.cardTitle, { color: colors.foreground }]}>이미지 탐지</Text>
-          <Text style={[styles.cardSub, { color: colors.mutedForeground }]}>딥페이크 분석</Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={() => navigation.navigate('History')}
-        >
-          <View style={[styles.iconCircle, { backgroundColor: colors.secondary || '#64748B' + '15' }]}>
-            <Ionicons name="time" size={28} color={colors.secondary || '#64748B'} />
-          </View>
-          <Text style={[styles.cardTitle, { color: colors.foreground }]}>검사 기록</Text>
-          <Text style={[styles.cardSub, { color: colors.mutedForeground }]}>최근 50건</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Voice Detection Section */}
       <View style={[styles.sectionContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -120,6 +97,30 @@ export default function HomeScreen() {
           isAnalyzing={isAnalyzing}
           colors={colors}
         />
+      </View>
+
+      {/* Image Detection Section */}
+      <View style={[styles.sectionContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="image" size={24} color={colors.primary} />
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>이미지 탐지</Text>
+        </View>
+        
+        <TouchableOpacity 
+          style={[styles.actionButton, { backgroundColor: colors.primary + '10', borderColor: colors.primary + '30' }]}
+          onPress={() => navigation.navigate('ImageDetectionScreen')}
+        >
+          <View style={[styles.actionIcon, { backgroundColor: colors.primary + '20' }]}>
+            <Ionicons name="scan-outline" size={28} color={colors.primary} />
+          </View>
+          <View style={styles.actionTextContainer}>
+            <Text style={[styles.actionTitle, { color: colors.foreground }]}>이미지 분석 시작</Text>
+            <Text style={[styles.actionDesc, { color: colors.mutedForeground }]}>
+              딥페이크가 의심되는 사물/인물 사진을 분석합니다.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color={colors.mutedForeground} />
+        </TouchableOpacity>
       </View>
       
       <View style={{ height: 40 }} />
@@ -207,5 +208,31 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     width: '100%',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 16,
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionTextContainer: {
+    flex: 1,
+    gap: 4,
+  },
+  actionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  actionDesc: {
+    fontSize: 13,
   },
 });

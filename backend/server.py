@@ -1,4 +1,11 @@
+import sys
+print(f"DEBUG: Executable: {sys.executable}")
+# print(f"DEBUG: Path: {sys.path}") 
 import os
+# Disable symlinks for Hugging Face Hub to avoid WinError 1314 on Windows without Developer Mode
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
+
 from contextlib import asynccontextmanager
 import numpy as np
 import librosa
@@ -122,10 +129,14 @@ def load_speaker_recognition_model():
     global speaker_recognition_model
     try:
         print(f"⏳ Loading Speaker Recognition Model: {SPEAKER_MODEL_NAME}...")
-        speaker_recognition_model = EncoderClassifier.from_hparams(source=SPEAKER_MODEL_NAME, savedir="tmp_model")
+        # savedir is removed to rely on HF cache (with symlinks disabled via env var)
+        # If this still fails, we catch the error below.
+        speaker_recognition_model = EncoderClassifier.from_hparams(source=SPEAKER_MODEL_NAME)
         print(f"✅ Speaker Recognition Model loaded: {SPEAKER_MODEL_NAME}")
     except Exception as e:
         print(f"⚠️ Failed to load Speaker Recognition model: {e}")
+        if "WinError 1314" in str(e):
+             print("💡 TIP: Try running the terminal as Administrator or enable Developer Mode in Windows Settings.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -537,22 +548,24 @@ def diarize_audio(file_path, num_speakers=None):
         if not wav_path:
             return None
         
-        # Load using torchaudio for VAD compatibility
-        import torchaudio
-        wav, sr = torchaudio.load(wav_path)
+        # Load using librosa to avoid torchaudio backend issues (TorchCodec error)
+        # librosa loads as (T,) float32, resamples automatically
+        wav_np, sr = librosa.load(wav_path, sr=16000) 
+        wav = torch.FloatTensor(wav_np)
         
-        # Resample if needed (Silero VAD expects 16k or 8k)
-        if sr != 16000:
-            resampler = torchaudio.transforms.Resample(sr, 16000)
-            wav = resampler(wav)
-            sr = 16000
+        # Ensure (1, T) shape for compatibility with downstream processing
+        if wav.dim() == 1:
+            wav = wav.unsqueeze(0)
+            
+        # sr is already 16000 from librosa.load
 
         # 2. VAD - Get speech timestamps
         model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad', force_reload=False, trust_repo=True)
         (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
         
         # Get speech timestamps
-        speech_timestamps = get_speech_timestamps(wav, model, sampling_rate=sr)
+        # Silero VAD expects 1D tensor for single file
+        speech_timestamps = get_speech_timestamps(wav.squeeze(), model, sampling_rate=sr)
         
         if not speech_timestamps:
             print("No speech detected.")
@@ -593,19 +606,24 @@ def diarize_audio(file_path, num_speakers=None):
         X = np.array(embeddings)
         
         # Determine number of clusters
-        if num_speakers is None:
-            # Simple heuristic: if < 5 segments, assume 1 speaker. Else try to find 2.
-            # In real app, might use spectral clustering or user input.
-            # For now, let's assume 2 speakers for phone calls if enough data, else 1.
-            n_clusters = 2 if len(X) >= 4 else 1
+        if len(X) < 2:
+             # Not enough samples for clustering, assume 1 speaker
+             labels = [0] * len(X)
         else:
-            n_clusters = num_speakers
+            if num_speakers is None:
+                # Simple heuristic: if < 5 segments, assume 1 speaker. Else try to find 2.
+                n_clusters = 2 if len(X) >= 4 else 1
+            else:
+                n_clusters = num_speakers
+                
+            if len(X) < n_clusters:
+                 n_clusters = len(X)
             
-        if len(X) < n_clusters:
-             n_clusters = len(X)
-
-        clustering = AgglomerativeClustering(n_clusters=n_clusters).fit(X)
-        labels = clustering.labels_
+            if n_clusters < 2:
+                 labels = [0] * len(X)
+            else:
+                 clustering = AgglomerativeClustering(n_clusters=n_clusters).fit(X)
+                 labels = clustering.labels_
         
         # Group segments by speaker
         speakers = {}
@@ -658,6 +676,72 @@ def diarize_audio(file_path, num_speakers=None):
         import traceback
         traceback.print_exc()
         return None
+
+        return None
+        
+def transcribe_segments(file_path, diarization_result):
+    """
+    Transcribe audio segments for each speaker.
+    Returns a list of { "speaker": "Speaker 1", "text": "...", "timestamp": "00:00" } sorted by time.
+    """
+    r = sr.Recognizer()
+    transcript_entries = []
+    
+    # Flatten segments from all speakers
+    all_segments = []
+    for speaker in diarization_result:
+        for seg in speaker['segments']:
+            all_segments.append({
+                "speaker": speaker['id'],
+                "start": seg['start'],
+                "end": seg['end']
+            })
+    
+    # Sort by start time
+    all_segments.sort(key=lambda x: x['start'])
+    
+    try:
+        # Load audio using librosa (robust)
+        y, sr_rate = librosa.load(file_path, sr=16000)
+        
+        import soundfile as sf
+        import io
+        
+        for seg in all_segments:
+            start_sample = int(seg['start'] * sr_rate)
+            end_sample = int(seg['end'] * sr_rate)
+            
+            # Skip very short segments (< 1s)
+            if end_sample - start_sample < sr_rate:
+                continue
+                
+            chunk = y[start_sample:end_sample]
+            
+            # Write chunk to memory buffer as WAV
+            buf = io.BytesIO()
+            sf.write(buf, chunk, sr_rate, format='WAV')
+            buf.seek(0)
+            
+            with sr.AudioFile(buf) as source:
+                audio_data = r.record(source)
+                try:
+                    text = r.recognize_google(audio_data, language='ko-KR')
+                    if text:
+                        transcript_entries.append({
+                            "speaker": seg['speaker'],
+                            "text": text,
+                            "start": seg['start'],
+                            "timestamp": f"{int(seg['start']//60):02d}:{int(seg['start']%60):02d}"
+                        })
+                except sr.UnknownValueError:
+                    pass # No speech detected
+                except Exception as e:
+                    print(f"Segment transcription error: {e}")
+                    
+    except Exception as e:
+        print(f"Transcription setup error: {e}")
+        
+    return transcript_entries
 
 def predict_age_gender(file_path, audio_data=None):
     """Predict age and gender from audio file or raw audio data"""
@@ -961,11 +1045,27 @@ async def analyze_audio(file: UploadFile = File(...), db: Session = Depends(get_
         # Speaker Diarization & Age/Gender Analysis
         diarization_result = diarize_audio(tmp_path)
         speaker_demographics = None
-        
+        speaker_transcript = []
+
         if diarization_result and len(diarization_result) > 0:
             # Use the primary speaker (longest duration) for the main display
             primary_speaker = max(diarization_result, key=lambda x: x['duration'])
             speaker_demographics = primary_speaker['demographics']
+            
+            # Fallback: If diarization yielded "Unknown" gender, try whole-file analysis
+            if speaker_demographics is None or speaker_demographics.get('gender') == 'Unknown':
+                print("Diarization gender unknown, falling back to whole-file analysis")
+                whole_file_demographics = predict_age_gender(tmp_path)
+                if whole_file_demographics:
+                    speaker_demographics = whole_file_demographics
+                    # Update the primary speaker's demographics in the list too for consistency
+                    primary_speaker['demographics'] = whole_file_demographics
+            
+            # Generate Speaker-Separated Transcript
+            try:
+                speaker_transcript = transcribe_segments(tmp_path, diarization_result)
+            except Exception as e:
+                print(f"Speaker transcription error: {e}")
         else:
             # Fallback to single-speaker analysis
             speaker_demographics = predict_age_gender(tmp_path)
@@ -988,6 +1088,9 @@ async def analyze_audio(file: UploadFile = File(...), db: Session = Depends(get_
             if max_similarity < 70: # Threshold for identification
                 speaker_id = "Unknown"
 
+
+
+
         analysis_result = {
             "isDeepfake": is_deepfake,
             "confidence": confidence,
@@ -998,7 +1101,8 @@ async def analyze_audio(file: UploadFile = File(...), db: Session = Depends(get_
                 "id": speaker_id,
                 "similarity": max_similarity,
                 "demographics": speaker_demographics,
-                "diarization": diarization_result
+                "diarization": diarization_result,
+                "transcript": speaker_transcript
             }
         }
 
@@ -1035,6 +1139,20 @@ async def analyze_audio(file: UploadFile = File(...), db: Session = Depends(get_
 def list_voices(db: Session = Depends(get_db)):
     voices = db.query(Voice).all()
     return {"voices": [v.name for v in voices]}
+
+@app.delete("/delete_voice")
+async def delete_voice(name: str, db: Session = Depends(get_db)):
+    voice = db.query(Voice).filter(Voice.name == name).first()
+    if not voice:
+        raise HTTPException(status_code=404, detail="Voice not found")
+    
+    try:
+        db.delete(voice)
+        db.commit()
+        return {"status": "success", "message": f"Voice '{name}' deleted"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history")
 def get_history(db: Session = Depends(get_db)):
