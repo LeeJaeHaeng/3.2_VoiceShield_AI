@@ -91,7 +91,7 @@ export default function ImageDetectionScreen() {
             console.error("Failed to copy image", e);
         }
 
-        // 2. Save ELA Image (Base64) to file to save AsyncStorage space
+        // 2a. Save ELA Image (Base64) to file
         let elaImagePath = null;
         if (data.ela_image) {
             const elaFileName = `ela_${Date.now()}.jpg`;
@@ -102,6 +102,20 @@ export default function ImageDetectionScreen() {
                 });
             } catch (e) {
                 console.error("Failed to save ELA image", e);
+            }
+        }
+
+        // 2b. Save Visualized Image (Base64) to file
+        let visualizedImagePath = null;
+        if (data.visualized_image) {
+            const visFileName = `vis_${Date.now()}.jpg`;
+            visualizedImagePath = FileSystem.documentDirectory + visFileName;
+            try {
+                await FileSystem.writeAsStringAsync(visualizedImagePath, data.visualized_image, {
+                    encoding: FileSystem.EncodingType.Base64
+                });
+            } catch (e) {
+                console.error("Failed to save Visualized image", e);
             }
         }
 
@@ -116,9 +130,11 @@ export default function ImageDetectionScreen() {
           details: {
               ...data,
               originalUri: newPath, // Permanent path for original
-              elaImageUri: elaImagePath, // Path to saved ELA image (not base64 string)
-              // Remove large base64 string from details to prevent SQLITE_FULL
-              ela_image: undefined 
+              elaImageUri: elaImagePath, // Path to saved ELA image
+              visualizedImageUri: visualizedImagePath, // Path to saved Visualized image
+              // Remove large base64 strings from details to prevent SQLITE_FULL / Row too big
+              ela_image: undefined,
+              visualized_image: undefined
           }
         };
         const updatedHistory = [newHistoryItem, ...history];

@@ -39,7 +39,8 @@ MODEL_PATH = "best_model.h5"
 model = None
 
 # Secondary audio deepfake detection using transformers
-AUDIO_HF_MODEL_NAME = "Andyrasika/deepfake_voice_recognition"  # Example model
+# Secondary audio deepfake detection using transformers
+AUDIO_HF_MODEL_NAME = None # Disabled to prevent mix-up or 404
 audio_hf_model = None
 audio_hf_processor = None
 
@@ -57,8 +58,8 @@ AGE_GENDER_MODEL_NAME = "audeering/wav2vec2-large-robust-24-ft-age-gender"
 age_gender_model = None
 age_gender_processor = None
 
-# Summarization Model
-SUMMARIZATION_MODEL_NAME = "sshleifer/distilbart-cnn-12-6"
+# Summarization Model (Korean)
+SUMMARIZATION_MODEL_NAME = "gogamza/kobart-summarization"
 summarization_pipeline = None
 
 def load_model():
@@ -76,6 +77,10 @@ def load_audio_hf_model():
     """Load secondary Hugging Face audio model for ensemble"""
     global audio_hf_model, audio_hf_processor
     try:
+        if not AUDIO_HF_MODEL_NAME or "placeholder" in AUDIO_HF_MODEL_NAME.lower():
+            print("ℹ️ Secondary HF Audio Model is disabled.")
+            return
+
         print(f"⏳ Loading HF Audio Model: {AUDIO_HF_MODEL_NAME}...")
         from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
         audio_hf_processor = AutoFeatureExtractor.from_pretrained(AUDIO_HF_MODEL_NAME)
@@ -254,6 +259,53 @@ def analyze_image_combined(file_path):
         img = Image.open(file_path)
         img = img.convert('RGB')
         
+        # --- 0. NEW: Frequency Domain Analysis (FFT) ---
+        # Detects periodic artifacts common in GAN/Diffusion models
+        fft_score = 0
+        is_fft_suspicious = False
+        try:
+             # Convert to grayscale for FFT
+             img_gray = img.convert('L')
+             img_np = np.array(img_gray)
+             
+             # Perform 2D FFT
+             f = np.fft.fft2(img_np)
+             fshift = np.fft.fftshift(f)
+             magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1)
+             
+             # Calculate azimuthal average to detect abnormal high-frequency spikes
+             # Simplification: Check for unusual energy concentrations in high freq
+             h, w = magnitude_spectrum.shape
+             center_x, center_y = w // 2, h // 2
+             
+             # Define high-frequency region (outer ring)
+             radius_inner = min(h, w) // 4
+             y, x = np.ogrid[:h, :w]
+             mask_area = (x - center_x)**2 + (y - center_y)**2 >= radius_inner**2
+             
+             high_freq_mean = np.mean(magnitude_spectrum[mask_area])
+             total_mean = np.mean(magnitude_spectrum)
+             
+             # AI images often have unusually uniform or unusually decaying high freqs
+             # Real images have natural 1/f decay.
+             # This is a simplified heuristic: High frequency energy ratio
+             fft_ratio = high_freq_mean / total_mean
+             
+             print(f"[FFT] High Freq Ratio: {fft_ratio:.4f}")
+             
+             # Thresholds tuned for NanoBanana/StableDiffusion (often have specific spectral signature)
+             # Relaxed thresholds to reduce false positives on real photos
+             # Real photos can vary from 0.55 (bokeh/blur) to 0.98 (noise/grain).
+             # AI often produces < 0.5 (super smooth) or > 0.99 (checkerboard artifacts).
+             if fft_ratio < 0.50 or fft_ratio > 0.985: 
+                 is_fft_suspicious = True
+                 fft_score = 75 
+             else:
+                 fft_score = 10 
+                 
+        except Exception as e:
+            print(f"FFT Analysis Error: {e}")
+
         # --- 1. Heuristic Analysis (ELA) ---
         ela_score = 0
         is_ela_suspicious = False
@@ -432,46 +484,48 @@ def analyze_image_combined(file_path):
         ELA_MODERATE_THRESHOLD = 50 # Moderate confidence
 
         if len(ai_models) > 0 and len(ai_processors) > 0:
-            # Primary decision based on AI model (more reliable)
-            if ai_probability >= AI_HIGH_THRESHOLD:
-                # High confidence AI detection
-                if ela_score >= ELA_MODERATE_THRESHOLD:
-                    # Both AI and ELA agree - very high confidence
-                    is_manipulated = True
-                    final_score = min(ai_probability * 0.75 + ela_score * 0.25, 99)
-                elif ela_score < 30:
-                    # AI says fake but ELA is very low - reduce confidence
-                    is_manipulated = ai_probability > 85
-                    final_score = ai_probability * 0.85 if is_manipulated else (100 - ai_probability)
-                else:
-                    # AI confident, ELA neutral
-                    is_manipulated = True
-                    final_score = min(ai_probability * 0.9, 95)
-
-            elif ai_probability >= AI_MODERATE_THRESHOLD:
-                # Moderate AI confidence - need ELA support
-                if ela_score >= ELA_HIGH_THRESHOLD:
-                    # ELA strongly agrees
-                    is_manipulated = True
-                    final_score = min(ai_probability * 0.6 + ela_score * 0.4, 90)
-                else:
-                    # Not enough evidence
-                    is_manipulated = False
-                    final_score = (100 - ai_probability) * 0.8
-
-            elif ela_score >= ELA_HIGH_THRESHOLD:
-                # Low AI confidence but high ELA - likely edited/compressed
+            # Primary decision based on AI model (Independent of ELA)
+            # Higher threshold for "Artificial" to prevent false positives
+            if ai_probability >= 70:
                 is_manipulated = True
-                final_score = min(ela_score * 1.2, 85)
+                final_score = ai_probability
+                ai_verdict = "Artificial"
+                
+            elif ai_probability >= 50:
+                # Moderate AI confidence -> Check ELA or FFT for support
+                # REQUIRE corroboration from ELA or FFT to flag as manipulated
+                if ela_score >= 45 or (is_fft_suspicious and fft_score > 70):
+                    is_manipulated = True
+                    final_score = (ai_probability + max(ela_score, fft_score)) / 2
+                else:
+                    # Ambiguous -> Benefit of doubt to Real
+                    is_manipulated = False 
+                    final_score = ai_probability
+                    
+            elif ela_score >= 65:
+                # Low AI probability but High ELA -> Likely edited (Photoshop)
+                is_manipulated = True
+                final_score = ela_score
+                ai_verdict = "Manipulated"
+            
+            elif is_fft_suspicious and fft_score > 80 and ai_probability > 30:
+                 # FFT very suspicious AND at least some AI suspicion
+                 is_manipulated = True
+                 final_score = fft_score
+                 ai_verdict = "Artificial (FFT)"
+            
             else:
-                # Both low - likely genuine
+                # All signals low -> Genuine
                 is_manipulated = False
-                final_score = min((100 - ai_probability) * 0.95, 98)
+                final_score = max(100 - ai_probability, 100 - ela_score)
         else:
-            # Fallback to ELA only (very conservative)
-            if ela_score >= 70:  # Very high threshold without AI
+            # Fallback to ELA + FFT
+            if ela_score >= 70:
                 is_manipulated = True
-                final_score = min(ela_score * 1.1, 90)
+                final_score = ela_score
+            elif is_fft_suspicious and fft_score > 85:
+                 is_manipulated = True
+                 final_score = fft_score
             else:
                 is_manipulated = False
                 final_score = max(100 - ela_score, 50)
@@ -744,7 +798,7 @@ def transcribe_segments(file_path, diarization_result):
     return transcript_entries
 
 def predict_age_gender(file_path, audio_data=None):
-    """Predict age and gender from audio file or raw audio data"""
+    """Predict age and gender from audio file or raw audio data using Chunking & Voting"""
     if age_gender_model is None or age_gender_processor is None:
         return None
 
@@ -752,54 +806,109 @@ def predict_age_gender(file_path, audio_data=None):
         audio = None
         sr = 16000
 
+        # 1. Load Audio
         if audio_data is not None:
-            # Use provided audio data (numpy array)
             audio = audio_data
         elif file_path:
-            # Load audio (resample to 16k) using PyAV
-            audio, sr = load_audio_with_av(file_path, sr=16000, duration=10) # Limit to 10s for efficiency
+            # Load full audio (up to 60s to capture more context)
+            audio, sr = load_audio_with_av(file_path, sr=16000, duration=60)
             if audio is None:
-                 audio, sr = librosa.load(file_path, sr=16000, duration=10)
+                audio, sr = librosa.load(file_path, sr=16000, duration=60)
         
-        if audio is None:
+        if audio is None or len(audio) < 16000: # Need at least 1 second
             return None
         
-        # Process audio
-        inputs = age_gender_processor(audio, sampling_rate=16000, return_tensors="pt", padding=True)
+        # 2. Chunking Logic (Split into 5-second chunks with 2s overlap)
+        chunk_duration = 5 # seconds
+        overlap = 2 # seconds
+        chunk_samples = int(chunk_duration * sr)
+        step = int((chunk_duration - overlap) * sr)
         
-        with torch.no_grad():
-            logits = age_gender_model(inputs.input_values, attention_mask=inputs.attention_mask).logits
+        chunks = []
+        if len(audio) <= chunk_samples:
+            chunks.append(audio)
+        else:
+            for i in range(0, len(audio) - chunk_samples + 1, step):
+                chunks.append(audio[i : i + chunk_samples])
             
-        # Get prediction
-        # The model outputs logits for: [female, male, child, etc.] - check config
-        # Actually this specific model outputs a single label string usually?
-        # Let's check the id2label mapping
+            # Add last chunk if skipped and meaningful length remains
+            if len(audio) > chunk_samples and (len(audio) - chunks[-1][-1]) > 16000:
+                chunks.append(audio[-chunk_samples:])
+
+        if not chunks:
+            chunks.append(audio) # Fallback
+
+        gender_votes = []
+        age_values = []
+        
         id2label = age_gender_model.config.id2label
-        predicted_idx = torch.argmax(logits, dim=-1).item()
-        predicted_label = id2label[predicted_idx]
+
+        # 3. Predict for each chunk
+        for chunk in chunks:
+            try:
+                inputs = age_gender_processor(chunk, sampling_rate=16000, return_tensors="pt", padding=True)
+                with torch.no_grad():
+                    logits = age_gender_model(inputs.input_values, attention_mask=inputs.attention_mask).logits
+                
+                predicted_idx = torch.argmax(logits, dim=-1).item()
+                predicted_label = id2label[predicted_idx]
+                
+                # Retrieve parsed gender and age
+                # Labels format examples: 'female_26', 'male_32', 'child_female_10', etc.
+                
+                curr_gender = "Unknown"
+                curr_age = None
+                
+                # Parse Gender
+                if "female" in predicted_label:
+                    curr_gender = "Female"
+                elif "male" in predicted_label:
+                    curr_gender = "Male"
+                elif "child" in predicted_label:
+                    curr_gender = "Child"
+                
+                # Parse Age
+                # Try to extract number from string
+                import re
+                age_match = re.search(r'_(\d+)', predicted_label)
+                if age_match:
+                    curr_age = int(age_match.group(1))
+                
+                if curr_gender != "Unknown":
+                    gender_votes.append(curr_gender)
+                if curr_age is not None:
+                    age_values.append(curr_age)
+                    
+            except Exception as e:
+                # skip bad chunks
+                continue
+
+        # 4. Voting / Aggregation
+        from collections import Counter
         
-        # Format: "female_20s", "male_60s", etc.
-        # We want to parse this into { "gender": "Female", "age_group": "20s" }
+        final_gender = "Unknown"
+        final_age_str = "Unknown"
         
-        gender = "Unknown"
-        age_group = "Unknown"
-        
-        if "female" in predicted_label:
-            gender = "Female"
-        elif "male" in predicted_label:
-            gender = "Male"
-        elif "child" in predicted_label:
-            gender = "Child"
+        if gender_votes:
+            # Majority vote
+            final_gender = Counter(gender_votes).most_common(1)[0][0]
             
-        # Extract age if present (e.g., "female_26")
-        # The labels are often like 'female_child', 'female_teen', 'female_thirties', etc.
-        # Or sometimes 'female:20-29'
-        # Let's just return the raw label mapped to user friendly string
+        if age_values:
+            # Average age
+            avg_age = sum(age_values) / len(age_values)
+            # Create age group string (e.g. "20s", "30s")
+            age_tens = int(avg_age // 10) * 10
+            final_age_str = f"{age_tens}s"
+            
+            # Refine Child logic
+            if avg_age < 13:
+                 final_gender = "Child" # Override gender if age is clearly child
+                 final_age_str = "Child"
         
         return {
-            "raw_label": predicted_label,
-            "gender": gender,
-            "age_group": predicted_label.replace(gender.lower() + '_', '') if gender != "Unknown" else predicted_label
+            "raw_label": f"{final_gender}_{final_age_str}", # Synthetic label
+            "gender": final_gender,
+            "age_group": final_age_str
         }
 
     except Exception as e:
@@ -826,20 +935,49 @@ def analyze_context(file_path):
             text = r.recognize_google(audio_data, language='ko-KR')
             
         keywords = {
-            "검찰": 10, "송금": 10, "계좌": 5, "비밀번호": 8, "보안": 5,
-            "대출": 5, "신용": 5, "가족": 3, "납치": 10, "사고": 5,
-            "상품권": 8, "기프트카드": 8, "어플": 5, "설치": 5,
-            "엄마": 2, "아빠": 2 # Contextual triggers
+            # High Risk (Direct Threats / Actions)
+            "검찰": 20, "검사": 20, "수사관": 20, "금융감독원": 20, "금감원": 20,
+            "송금": 20, "이체": 20, "현금": 15, "인출": 20, "전달": 15,
+            "대포통장": 35, "통장": 15, "계좌": 15, "비밀번호": 25, "보안카드": 25, "OTP": 20,
+            "납치": 50, "협박": 30, "감금": 30, "사고": 15, "합의금": 20,
+            "개인정보": 15, "유출": 15, "도용": 15, "범죄": 20, "연루": 20,
+            "상품권": 20, "기프트카드": 20, "어플": 15, "설치": 15, "원격": 25,
+            "신분증": 15, 
+            
+            # Contextual / Persuasion
+            "양도": 20, "판매": 20, "대여": 20, "가족": 10, "자녀": 10, "엄마": 10, "아빠": 10,
+            "대출": 15, "신용": 15, "등급": 10, "저금리": 15, "상환": 15,
+            "명의": 15, "도망": 15, "구속": 20, "영장": 20,
+            "서울중앙지검": 30, "사건": 15, "번호": 10,
+            "은행": 10, "용도": 10, "적금": 10,
+            
+            # Additional Keywords from Analysis Logs
+            "발급": 10, "보호": 10, "등록": 10, "금융": 10, "확인": 5
         }
         
         detected = []
         score = 0
-        for word, weight in keywords.items():
-            if word in text:
-                detected.append(word)
-                score += weight
         
-        risk_score = min(score * 5, 100)
+        # Improved Keyword Matching (Partial Match Guard & Spacing Fix)
+        # Check against BOTH the original text and normalized text (no spaces)
+        # This fixes STT issues like "대포 통장" not matching "대포통장"
+        normalized_text = text.replace(" ", "")
+        
+        for word, weight in keywords.items():
+            if word in text or word in normalized_text:
+                if word not in detected: # Prevent double counting
+                    detected.append(word)
+                    score += weight
+        
+        # Risk Score Logic
+        # Max score is capped at 100.
+        # If "High Risk" keywords (>15) are found, boost score significantly
+        if any(keywords[w] >= 20 for w in detected):
+            score = max(score, 60) # High risk -> Immediate alert level
+        elif any(keywords[w] >= 15 for w in detected):
+            score = max(score, 35) # Moderate risk -> Warning level
+            
+        risk_score = min(score, 100) # Ensure 0-100 range
         
         # --- Summarization ---
         summary_text = ""
@@ -1157,7 +1295,35 @@ async def delete_voice(name: str, db: Session = Depends(get_db)):
 @app.get("/history")
 def get_history(db: Session = Depends(get_db)):
     logs = db.query(AnalysisLog).order_by(AnalysisLog.created_at.desc()).limit(50).all()
-    return {"history": logs}
+    # Strip heavy base64 strings from list view
+    sanitized_logs = []
+    for log in logs:
+        log_dict = {
+            "id": log.id,
+            "filename": log.filename,
+            "created_at": log.created_at,
+            "result": log.result
+        }
+        if log_dict["result"]:
+            # Create a shallow copy to modify without affecting DB object state in this session
+            # (Though effectively we are just building a response dict)
+            res = dict(log_dict["result"]) 
+            if "visualized_image" in res:
+                res["visualized_image"] = None # Remove payload
+            if "ela_image" in res:
+                res["ela_image"] = None # Remove payload
+            
+            # Legacy: some old records might have details inside result
+            if "details" in res and isinstance(res["details"], dict):
+                 if "visualized_image" in res["details"]:
+                     res["details"]["visualized_image"] = None
+                 if "ela_image" in res["details"]:
+                     res["details"]["ela_image"] = None
+
+            log_dict["result"] = res
+        sanitized_logs.append(log_dict)
+        
+    return {"history": sanitized_logs}
 
 @app.post("/analyze_image")
 async def analyze_image(file: UploadFile = File(...)):
