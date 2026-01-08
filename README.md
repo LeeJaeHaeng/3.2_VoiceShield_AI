@@ -125,6 +125,14 @@ Node.js 환경이 필요합니다.
 
 ---
 
+## 🎬 시연 영상
+
+[![VoiceShield AI 시연 영상](https://img.youtube.com/vi/3D3rc5xtZYk/0.jpg)](https://youtube.com/shorts/3D3rc5xtZYk)
+
+👉 클릭 시 YouTube Shorts에서 시연 영상이 재생됩니다.
+
+---
+
 ## 📝 라이선스
 
 0BSD License.
