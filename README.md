@@ -12,6 +12,14 @@
 
 ---
 
+## 🎬 시연 영상
+
+[![VoiceShield AI 시연 영상](https://img.youtube.com/vi/3D3rc5xtZYk/0.jpg)](https://youtube.com/shorts/3D3rc5xtZYk)
+
+👉 클릭 시 YouTube Shorts에서 시연 영상이 재생됩니다.
+
+---
+
 ## ✨ 핵심 기능 상세 (Key Features)
 
 ### 1. 🔍 멀티모달 딥페이크 탐지 (Multimodal Detection)
@@ -122,15 +130,6 @@ Node.js 환경이 필요합니다.
 1. **AI 모델 다운로드**: 서버 최초 실행 시 Hugging Face에서 모델을 다운로드하느라 다소 시간이 소요될 수 있습니다.
 2. **네트워크 설정**: 모바일 기기와 서버(PC)가 동일한 네트워크(Wi-Fi)에 있어야 통신이 가능합니다. (`src/config.js` IP 설정 확인)
 3. **권한 허용**: 앱의 기능을 온전히 사용하기 위해 **마이크**, **카메라**, **파일 접근** 권한을 허용해 주세요.
-
----
-
-## 🎬 시연 영상
-
-[![VoiceShield AI 시연 영상](https://img.youtube.com/vi/3D3rc5xtZYk/0.jpg)](https://youtube.com/shorts/3D3rc5xtZYk)
-
-👉 클릭 시 YouTube Shorts에서 시연 영상이 재생됩니다.
-
 ---
 
 ## 📝 라이선스
